@@ -39,6 +39,13 @@ body{background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,system-ui
 #shutter{width:74px;height:74px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25);cursor:pointer}
 #shutter:active{background:#fff}
 #count{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:110px;font-weight:800;color:#fff;text-shadow:0 2px 12px #000;pointer-events:none}
+#roll{position:absolute;left:14px;bottom:calc(150px + env(safe-area-inset-bottom));width:52px;height:52px;border-radius:10px;border:2px solid #fff;background:#000 center/cover;display:none;cursor:pointer}
+#rollN{position:absolute;top:-8px;right:-8px;background:var(--ok);color:#04110B;font-size:11px;font-weight:800;border-radius:99px;padding:1px 6px}
+#gal{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;flex-direction:column;z-index:9}
+#galGrid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:14px}
+#galGrid img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px}
+#galBar{display:flex;gap:10px;padding:12px 14px calc(16px + env(safe-area-inset-bottom))}
+#galBar .btn{flex:1;padding:12px}
 #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .25s}
 #loading{position:absolute;bottom:140px;left:0;right:0;text-align:center;font-size:12px;color:var(--warn);text-shadow:0 1px 3px #000}
 </style>
@@ -73,6 +80,15 @@ body{background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,system-ui
   <div id="hint"></div>
   <div id="count"></div>
   <div id="flash"></div>
+  <div id="roll"><span id="rollN">0</span></div>
+  <div id="gal">
+    <div id="galGrid"></div>
+    <div id="galBar">
+      <button class="btn" id="galClose">ปิด</button>
+      <button class="btn" id="galClear">🗑 ลบหมด</button>
+      <button class="btn primary" id="galSave">💾 เซฟทั้งหมด</button>
+    </div>
+  </div>
   <div id="loading"></div>
   <div id="controls">
     <div id="sliders">
@@ -336,6 +352,8 @@ $('gridBtn').onclick=()=>{
 };
 $('timerBtn').onclick=()=>{ timerOn=!timerOn; $('timerBtn').textContent=timerOn?'⏱ 3 วิ: เปิด':'⏱ 3 วิ: ปิด'; };
 
+// ---------- rapid shooting: shots stack in-app, save all at once ----------
+const captures=[];
 $('shutter').onclick=async()=>{
   if(timerOn){
     for(let n=3;n>0;n--){ $('count').style.display='flex'; $('count').textContent=n; await new Promise(r=>setTimeout(r,1000)); }
@@ -344,14 +362,35 @@ $('shutter').onclick=async()=>{
   const c=document.createElement('canvas');
   c.width=video.videoWidth; c.height=video.videoHeight;
   c.getContext('2d').drawImage(video,0,0);
-  $('flash').style.opacity=.9; setTimeout(()=>$('flash').style.opacity=0,180);
-  c.toBlob(async b=>{
-    const file=new File([b],`photo-coach-${Date.now()}.jpg`,{type:'image/jpeg'});
-    if(navigator.canShare&&navigator.canShare({files:[file]})){
-      try{ await navigator.share({files:[file]}); return; }catch(e){}
-    }
-    const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=file.name; a.click();
+  $('flash').style.opacity=.9; setTimeout(()=>$('flash').style.opacity=0,150);
+  c.toBlob(b=>{
+    captures.push(new File([b],`photo-coach-${Date.now()}.jpg`,{type:'image/jpeg'}));
+    const url=URL.createObjectURL(b);
+    $('roll').style.backgroundImage=`url(${url})`;
+    $('roll').style.display='block';
+    $('rollN').textContent=captures.length;
   },'image/jpeg',.95);
+};
+$('roll').onclick=()=>{
+  const g=$('galGrid'); g.innerHTML='';
+  captures.forEach(f=>{
+    const im=document.createElement('img'); im.src=URL.createObjectURL(f); g.appendChild(im);
+  });
+  $('gal').style.display='flex';
+};
+$('galClose').onclick=()=>$('gal').style.display='none';
+$('galClear').onclick=()=>{
+  if(!confirm('ลบรูปทั้งหมดที่ถ่ายไว้?')) return;
+  captures.length=0; $('gal').style.display='none'; $('roll').style.display='none';
+};
+$('galSave').onclick=async()=>{
+  if(!captures.length) return;
+  if(navigator.canShare&&navigator.canShare({files:captures})){
+    try{ await navigator.share({files:captures}); return; }catch(e){ if(e.name==='AbortError') return; }
+  }
+  captures.forEach((f,i)=>setTimeout(()=>{
+    const a=document.createElement('a'); a.href=URL.createObjectURL(f); a.download=f.name; a.click();
+  },i*400));
 };
 </script>
 </body>
