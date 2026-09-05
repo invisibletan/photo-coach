@@ -114,35 +114,58 @@ function prog(p,txt){
   if(p>=100) setTimeout(()=>$('prog').style.display='none',600);
 }
 $('pickBtn').onclick=()=>$('refFile').click();
-$('refFile').onchange=e=>{
+let watchdog=null;
+function fail(msg){
+  clearTimeout(watchdog);
+  prog(100,'');
+  $('prog').style.display='none';
+  $('setupMsg').textContent=msg;
+}
+$('refFile').onchange=async e=>{
   const f=e.target.files[0]; if(!f) return;
-  prog(2,'อ่านไฟล์...');
-  const r=new FileReader();
-  r.onprogress=ev=>{ if(ev.lengthComputable) prog(2+Math.round(ev.loaded/ev.total*30),'อ่านไฟล์...'); };
-  r.onload=()=>loadRef(r.result,true);
-  r.readAsDataURL(f);
-};
-function loadRef(dataURL,fresh){
-  const raw=new Image();
-  raw.onload=()=>{
-    prog(40,'ย่อรูป...');
-    // downscale huge photos: segmentation + storage get 10x faster
-    const MAX=1280, sc=Math.min(1,MAX/Math.max(raw.naturalWidth,raw.naturalHeight));
+  $('setupMsg').textContent='';
+  prog(15,'เปิดรูป...');
+  clearTimeout(watchdog);
+  watchdog=setTimeout(()=>fail('เปิดรูปไม่สำเร็จ (นานเกินไป) — ลองส่งรูปเป็น JPG หรือแคปหน้าจอรูปนั้นแล้วเลือกใหม่'),15000);
+  let source=null, sw=0, sh=0;
+  // path 1: createImageBitmap (fastest, handles HEIC on iOS ใหม่ๆ)
+  try{
+    const bmp=await createImageBitmap(f);
+    source=bmp; sw=bmp.width; sh=bmp.height;
+  }catch(err){
+    // path 2: <img> + objectURL + decode() (โยน error ชัดเจนถ้าไฟล์ไม่รองรับ)
+    try{
+      const url=URL.createObjectURL(f);
+      const im=new Image();
+      im.src=url;
+      await im.decode();
+      source=im; sw=im.naturalWidth; sh=im.naturalHeight;
+    }catch(err2){
+      fail('ไฟล์รูปแบบนี้เปิดไม่ได้บนเบราว์เซอร์ (มักเป็น HEIC) — แคปหน้าจอรูปนั้นแล้วเลือกรูปแคปแทน หรือให้แฟนส่งเป็น JPG ครับ');
+      return;
+    }
+  }
+  prog(45,'ย่อรูป...');
+  try{
+    const MAX=1280, sc=Math.min(1,MAX/Math.max(sw,sh));
     const c=document.createElement('canvas');
-    c.width=Math.round(raw.naturalWidth*sc); c.height=Math.round(raw.naturalHeight*sc);
-    c.getContext('2d').drawImage(raw,0,0,c.width,c.height);
-    const small=c.toDataURL('image/jpeg',.85);
-    refImg=new Image();
-    refImg.onload=()=>{
-      $('refPreview').src=small; $('refPreview').style.display='block';
-      $('startBtn').style.display='block';
-      if(fresh) store.set({ref:small});
-      prog(60,'โหลดตัวตัดเงาคน...');
-      buildRefMask();
-    };
-    refImg.src=small;
+    c.width=Math.round(sw*sc); c.height=Math.round(sh*sc);
+    c.getContext('2d').drawImage(source,0,0,c.width,c.height);
+    loadRef(c.toDataURL('image/jpeg',.85),true);
+  }catch(err){ fail('ย่อรูปไม่สำเร็จ: '+err.message); }
+};
+function loadRef(small,fresh){
+  refImg=new Image();
+  refImg.onload=()=>{
+    clearTimeout(watchdog);
+    $('refPreview').src=small; $('refPreview').style.display='block';
+    $('startBtn').style.display='block';
+    if(fresh) store.set({ref:small});
+    prog(60,'โหลดตัวตัดเงาคน...');
+    buildRefMask();
   };
-  raw.src=dataURL;
+  refImg.onerror=()=>fail('โหลดรูปที่ย่อแล้วไม่สำเร็จ — ลองใหม่อีกครั้ง');
+  refImg.src=small;
 }
 if(store.k.ref) loadRef(store.k.ref);
 if(store.k.tol){ $('tol').value=store.k.tol; $('tolVal').textContent=store.k.tol+'°'; }
