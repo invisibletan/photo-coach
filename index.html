@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0B0E11">
+<title>Photo Coach</title>
+<style>
+:root{--bg:#0B0E11;--panel:#12161C;--line:#1E2430;--ink:#EAECEF;--muted:#848E9C;--ok:#2EBD85;--bad:#F6465D;--warn:#F0B90B}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
+#setup{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center}
+#setup h1{font-size:22px}
+#setup p{color:var(--muted);font-size:13px;max-width:320px}
+.btn{background:var(--panel);border:1px solid var(--line);color:var(--ink);font:inherit;font-weight:600;border-radius:12px;padding:14px 26px;cursor:pointer}
+.btn.primary{background:var(--ok);border-color:var(--ok);color:#04110B}
+#refPreview{max-width:180px;max-height:240px;border-radius:12px;border:1px solid var(--line);display:none}
+#cam{position:fixed;inset:0;display:none}
+#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#ghost{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:.45}
+#frameBorder{position:absolute;inset:0;border:4px solid var(--bad);pointer-events:none;transition:border-color .2s}
+#frameBorder.ok{border-color:var(--ok)}
+#grid{position:absolute;inset:0;pointer-events:none;display:none}
+#grid div{position:absolute;background:rgba(255,255,255,.25)}
+#hud{position:absolute;top:0;left:0;right:0;display:flex;gap:8px;padding:14px 12px calc(10px);justify-content:center;flex-wrap:wrap}
+.pill{background:rgba(18,22,28,.85);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;display:flex;gap:6px;align-items:center}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--bad)}
+.dot.ok{background:var(--ok)} .dot.na{background:var(--muted)}
+#hint{position:absolute;top:64px;left:0;right:0;text-align:center;font-size:14px;font-weight:700;text-shadow:0 1px 4px #000}
+#controls{position:absolute;left:0;right:0;bottom:0;padding:12px 16px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px;background:linear-gradient(transparent,rgba(0,0,0,.55))}
+#sliders{display:flex;gap:14px;align-items:center;font-size:12px;color:#fff}
+#sliders input{flex:1}
+#btnRow{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.side{width:74px;display:flex;flex-direction:column;gap:6px;align-items:center}
+.small{background:rgba(18,22,28,.85);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;width:100%}
+#shutter{width:74px;height:74px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25);cursor:pointer}
+#shutter:active{background:#fff}
+#count{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:110px;font-weight:800;color:#fff;text-shadow:0 2px 12px #000;pointer-events:none}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .25s}
+#loading{position:absolute;bottom:140px;left:0;right:0;text-align:center;font-size:12px;color:var(--warn);text-shadow:0 1px 3px #000}
+</style>
+</head>
+<body>
+<div id="setup">
+  <h1>📸 Photo Coach</h1>
+  <p>อัพโหลดรูป reference จากแฟน → เล็งตามเงา → กรอบเขียวเมื่อคนตรงตำแหน่ง + องศาตรง แล้วกดถ่ายได้เลย</p>
+  <img id="refPreview" alt="">
+  <input type="file" id="refFile" accept="image/*" hidden>
+  <button class="btn" id="pickBtn">🖼 เลือกรูป Reference</button>
+  <button class="btn primary" id="startBtn" style="display:none">🎥 เปิดกล้อง</button>
+  <p id="setupMsg"></p>
+</div>
+
+<div id="cam">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="ghost"></canvas>
+  <div id="grid"></div>
+  <div id="frameBorder"></div>
+  <div id="hud">
+    <span class="pill"><span class="dot na" id="personDot"></span><span id="personTxt">คน: รอ...</span></span>
+    <span class="pill"><span class="dot na" id="angleDot"></span><span id="angleTxt">องศา: −</span></span>
+    <span class="pill"><span class="dot na" id="levelDot"></span><span id="levelTxt">ระดับ</span></span>
+  </div>
+  <div id="hint"></div>
+  <div id="count"></div>
+  <div id="flash"></div>
+  <div id="loading"></div>
+  <div id="controls">
+    <div id="sliders">
+      <span>เงา</span><input type="range" id="opacity" min="0" max="90" value="45">
+      <span>±องศา</span><input type="range" id="tol" min="1" max="15" value="4"><span id="tolVal">4°</span>
+    </div>
+    <div id="btnRow">
+      <div class="side">
+        <button class="small" id="setAngle">📐 จำองศานี้</button>
+        <button class="small" id="gridBtn">#️⃣ ตาราง</button>
+      </div>
+      <button id="shutter" aria-label="ถ่ายรูป"></button>
+      <div class="side">
+        <button class="small" id="timerBtn">⏱ 3 วิ: ปิด</button>
+        <button class="small" id="backBtn">🔄 เปลี่ยน ref</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get k(){ try{return JSON.parse(localStorage.pc||"{}")}catch(e){return{}} },
+  set(patch){ try{localStorage.pc=JSON.stringify({...this.k,...patch})}catch(e){} }
+};
+
+let refImg=null, refMaskCanvas=null, refBox=null;   // ref silhouette + normalized bbox
+let liveBox=null, seg=null, segBusy=false, segOK=false;
+let pitch=null, targetPitch=store.k.target ?? null, tol=store.k.tol ?? 4, gamma=0;
+let timerOn=false;
+
+// ---------- setup ----------
+$('pickBtn').onclick=()=>$('refFile').click();
+$('refFile').onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>loadRef(r.result);
+  r.readAsDataURL(f);
+};
+function loadRef(dataURL){
+  refImg=new Image();
+  refImg.onload=()=>{
+    $('refPreview').src=dataURL; $('refPreview').style.display='block';
+    $('startBtn').style.display='block';
+    store.set({ref:dataURL});
+    buildRefMask();
+  };
+  refImg.src=dataURL;
+}
+if(store.k.ref) loadRef(store.k.ref);
+if(store.k.tol){ $('tol').value=store.k.tol; $('tolVal').textContent=store.k.tol+'°'; }
+
+// ---------- segmentation ----------
+function initSeg(){
+  try{
+    seg=new SelfieSegmentation({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${f}`});
+    seg.setOptions({modelSelection:1});
+    seg.onResults(onSeg);
+    segOK=true;
+  }catch(e){ segOK=false; $('loading').textContent='โหลดตัว detect คนไม่ได้ — ใช้โหมดเงารูปเต็มแทน'; }
+}
+initSeg();
+
+let segTarget='ref';
+async function buildRefMask(){
+  if(!segOK||!refImg) return;
+  segTarget='ref';
+  try{ await seg.send({image:refImg}); }catch(e){ refMaskCanvas=null; }
+}
+
+function maskBBox(maskImg,w,h){
+  const c=document.createElement('canvas'); const S=120;
+  c.width=S; c.height=Math.round(S*h/w);
+  const x=c.getContext('2d'); x.drawImage(maskImg,0,0,c.width,c.height);
+  const d=x.getImageData(0,0,c.width,c.height).data;
+  let minX=1e9,minY=1e9,maxX=-1,maxY=-1,n=0;
+  for(let j=0;j<c.height;j++)for(let i=0;i<c.width;i++){
+    if(d[(j*c.width+i)*4+3]>128&&d[(j*c.width+i)*4]>100){ n++;
+      if(i<minX)minX=i; if(i>maxX)maxX=i; if(j<minY)minY=j; if(j>maxY)maxY=j; }
+  }
+  if(n<40) return null;
+  return {cx:(minX+maxX)/2/c.width, cy:(minY+maxY)/2/c.height, h:(maxY-minY)/c.height};
+}
+
+function onSeg(res){
+  const m=res.segmentationMask;
+  if(segTarget==='ref'){
+    refMaskCanvas=document.createElement('canvas');
+    refMaskCanvas.width=refImg.naturalWidth; refMaskCanvas.height=refImg.naturalHeight;
+    const x=refMaskCanvas.getContext('2d');
+    x.drawImage(m,0,0,refMaskCanvas.width,refMaskCanvas.height);
+    x.globalCompositeOperation='source-in';
+    x.fillStyle='#7fd8ff'; x.fillRect(0,0,refMaskCanvas.width,refMaskCanvas.height);
+    refBox=maskBBox(m,m.width,m.height);
+    drawGhost();
+  }else{
+    liveBox=maskBBox(m,m.width,m.height);
+    segBusy=false;
+    judge();
+  }
+}
+
+// ---------- camera ----------
+const video=$('video');
+$('startBtn').onclick=async()=>{
+  try{
+    const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},audio:false});
+    video.srcObject=s;
+    $('setup').style.display='none'; $('cam').style.display='block';
+    askOrientation();
+    requestAnimationFrame(tick);
+    setInterval(sendLive,350);
+    drawGhost();
+  }catch(e){ $('setupMsg').textContent='เปิดกล้องไม่ได้: '+e.message; }
+};
+$('backBtn').onclick=()=>{ location.reload(); };
+
+async function sendLive(){
+  if(!segOK||segBusy||video.readyState<2) return;
+  segBusy=true; segTarget='live';
+  try{ await seg.send({image:video}); }catch(e){ segBusy=false; }
+}
+
+// ---------- ghost overlay ----------
+const ghost=$('ghost');
+function drawGhost(){
+  if(!refImg) return;
+  const W=innerWidth,H=innerHeight;
+  ghost.width=W; ghost.height=H;
+  const x=ghost.getContext('2d');
+  x.clearRect(0,0,W,H);
+  const src=refMaskCanvas||refImg;
+  const sw=refImg.naturalWidth, sh=refImg.naturalHeight;
+  const scale=Math.max(W/sw,H/sh);          // cover fit — same as camera
+  const dw=sw*scale, dh=sh*scale;
+  x.drawImage(src,(W-dw)/2,(H-dh)/2,dw,dh);
+}
+addEventListener('resize',drawGhost);
+$('opacity').oninput=e=>ghost.style.opacity=e.target.value/100;
+
+// ---------- orientation ----------
+function askOrientation(){
+  const go=()=>addEventListener('deviceorientation',e=>{
+    if(e.beta!=null){ pitch=Math.round(e.beta-90); gamma=Math.round(e.gamma||0); }
+  });
+  if(typeof DeviceOrientationEvent!=='undefined'&&DeviceOrientationEvent.requestPermission){
+    DeviceOrientationEvent.requestPermission().then(r=>{ if(r==='granted') go(); }).catch(()=>{});
+  }else go();
+}
+$('setAngle').onclick=()=>{ if(pitch!=null){ targetPitch=pitch; store.set({target:pitch}); } };
+$('tol').oninput=e=>{ tol=+e.target.value; $('tolVal').textContent=tol+'°'; store.set({tol}); };
+
+// ---------- judge + HUD ----------
+function judge(){
+  // person
+  let personOK=false, hint='';
+  if(refBox&&liveBox){
+    const dx=liveBox.cx-refBox.cx, dy=liveBox.cy-refBox.cy, hr=liveBox.h/refBox.h;
+    personOK=Math.abs(dx)<.06&&Math.abs(dy)<.06&&hr>.85&&hr<1.18;
+    if(!personOK){
+      if(hr<=.85) hint='เดินเข้าใกล้อีก';
+      else if(hr>=1.18) hint='ถอยออกมาหน่อย';
+      else if(dx>.06) hint='ให้เขาขยับซ้าย / แพนกล้องขวา';
+      else if(dx<-.06) hint='ให้เขาขยับขวา / แพนกล้องซ้าย';
+      else if(dy>.06) hint='ยกกล้องขึ้น';
+      else hint='กดกล้องลงนิด';
+    }
+    $('personDot').className='dot'+(personOK?' ok':'');
+    $('personTxt').textContent=personOK?'คน: ตรงแล้ว':'คน: ยังไม่ตรง';
+  }else{
+    $('personDot').className='dot na';
+    $('personTxt').textContent=segOK?'คน: หาไม่เจอ':'คน: −';
+  }
+  // angle
+  let angleOK=null;
+  if(pitch!=null){
+    if(targetPitch!=null){
+      angleOK=Math.abs(pitch-targetPitch)<=tol;
+      $('angleTxt').textContent=`องศา ${pitch}° (เป้า ${targetPitch}±${tol})`;
+      $('angleDot').className='dot'+(angleOK?' ok':'');
+      if(!angleOK&&!hint) hint=pitch>targetPitch?'เงยไป — ก้มลง':'ก้มไป — เงยขึ้น';
+    }else{
+      $('angleTxt').textContent=`องศา ${pitch}° (ยังไม่ตั้งเป้า)`;
+      $('angleDot').className='dot na';
+    }
+  }
+  // level
+  const levelOK=Math.abs(gamma)<=3;
+  $('levelDot').className='dot'+(levelOK?' ok':(pitch==null?' na':''));
+  $('levelTxt').textContent=levelOK?'ระดับ ✓':`เอียง ${gamma}°`;
+  $('hint').textContent=hint;
+  $('frameBorder').className=(personOK&&(angleOK!==false))?'ok':'';
+}
+function tick(){ judge(); requestAnimationFrame(tick); }
+
+// ---------- grid / timer / shutter ----------
+$('gridBtn').onclick=()=>{
+  const g=$('grid');
+  if(g.style.display==='block'){ g.style.display='none'; return; }
+  g.innerHTML='';
+  [[33.3,0,0.5,100],[66.6,0,0.5,100]].forEach(([l])=>{
+    const v=document.createElement('div'); v.style.cssText=`left:${l}%;top:0;width:1px;height:100%`; g.appendChild(v);
+    const h=document.createElement('div'); h.style.cssText=`top:${l}%;left:0;height:1px;width:100%`; g.appendChild(h);
+  });
+  g.style.display='block';
+};
+$('timerBtn').onclick=()=>{ timerOn=!timerOn; $('timerBtn').textContent=timerOn?'⏱ 3 วิ: เปิด':'⏱ 3 วิ: ปิด'; };
+
+$('shutter').onclick=async()=>{
+  if(timerOn){
+    for(let n=3;n>0;n--){ $('count').style.display='flex'; $('count').textContent=n; await new Promise(r=>setTimeout(r,1000)); }
+    $('count').style.display='none';
+  }
+  const c=document.createElement('canvas');
+  c.width=video.videoWidth; c.height=video.videoHeight;
+  c.getContext('2d').drawImage(video,0,0);
+  $('flash').style.opacity=.9; setTimeout(()=>$('flash').style.opacity=0,180);
+  c.toBlob(async b=>{
+    const file=new File([b],`photo-coach-${Date.now()}.jpg`,{type:'image/jpeg'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      try{ await navigator.share({files:[file]}); return; }catch(e){}
+    }
+    const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=file.name; a.click();
+  },'image/jpeg',.95);
+};
+</script>
+</body>
+</html>
