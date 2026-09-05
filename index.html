@@ -83,6 +83,7 @@ body{background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,system-ui
       <div class="side">
         <button class="small" id="setAngle">📐 จำองศานี้</button>
         <button class="small" id="gridBtn">#️⃣ ตาราง</button>
+        <button class="small" id="modeBtn">🌓 ภาพเต็ม</button>
       </div>
       <button id="shutter" aria-label="ถ่ายรูป"></button>
       <div class="side">
@@ -245,13 +246,14 @@ async function sendLive(){
 
 // ---------- ghost overlay ----------
 const ghost=$('ghost');
+let ghostMode=store.k.mode||'full';   // 'full' = ทั้งรูป opacity ต่ำ (เทียบมุม/ฉากได้), 'sil' = เงาคน
 function drawGhost(){
   if(!refImg) return;
   const W=innerWidth,H=innerHeight;
   ghost.width=W; ghost.height=H;
   const x=ghost.getContext('2d');
   x.clearRect(0,0,W,H);
-  const src=refMaskCanvas||refImg;
+  const src=(ghostMode==='full')?refImg:(refMaskCanvas||refImg);
   const sw=refImg.naturalWidth, sh=refImg.naturalHeight;
   const scale=Math.max(W/sw,H/sh);          // cover fit — same as camera
   const dw=sw*scale, dh=sh*scale;
@@ -259,6 +261,12 @@ function drawGhost(){
 }
 addEventListener('resize',drawGhost);
 $('opacity').oninput=e=>ghost.style.opacity=e.target.value/100;
+function syncModeBtn(){ $('modeBtn').textContent=ghostMode==='full'?'🌓 ภาพเต็ม':'👤 เงาคน'; }
+$('modeBtn').onclick=()=>{
+  ghostMode=ghostMode==='full'?'sil':'full';
+  store.set({mode:ghostMode}); syncModeBtn(); drawGhost();
+};
+syncModeBtn();
 
 // ---------- orientation ----------
 function askOrientation(){
