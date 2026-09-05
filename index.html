@@ -49,6 +49,12 @@ body{background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,system-ui
   <p>อัพโหลดรูป reference จากแฟน → เล็งตามเงา → กรอบเขียวเมื่อคนตรงตำแหน่ง + องศาตรง แล้วกดถ่ายได้เลย</p>
   <img id="refPreview" alt="">
   <input type="file" id="refFile" accept="image/*" hidden>
+  <div id="prog" style="display:none;width:240px">
+    <div style="background:var(--line);border-radius:99px;height:8px;overflow:hidden">
+      <div id="progBar" style="background:var(--ok);height:100%;width:0%;transition:width .25s"></div>
+    </div>
+    <div id="progTxt" style="font-size:12px;color:var(--muted);margin-top:6px;text-align:center"></div>
+  </div>
   <button class="btn" id="pickBtn">🖼 เลือกรูป Reference</button>
   <button class="btn primary" id="startBtn" style="display:none">🎥 เปิดกล้อง</button>
   <p id="setupMsg"></p>
@@ -101,22 +107,42 @@ let pitch=null, targetPitch=store.k.target ?? null, tol=store.k.tol ?? 4, gamma=
 let timerOn=false;
 
 // ---------- setup ----------
+function prog(p,txt){
+  $('prog').style.display='block';
+  $('progBar').style.width=p+'%';
+  $('progTxt').textContent=txt;
+  if(p>=100) setTimeout(()=>$('prog').style.display='none',600);
+}
 $('pickBtn').onclick=()=>$('refFile').click();
 $('refFile').onchange=e=>{
   const f=e.target.files[0]; if(!f) return;
+  prog(2,'อ่านไฟล์...');
   const r=new FileReader();
-  r.onload=()=>loadRef(r.result);
+  r.onprogress=ev=>{ if(ev.lengthComputable) prog(2+Math.round(ev.loaded/ev.total*30),'อ่านไฟล์...'); };
+  r.onload=()=>loadRef(r.result,true);
   r.readAsDataURL(f);
 };
-function loadRef(dataURL){
-  refImg=new Image();
-  refImg.onload=()=>{
-    $('refPreview').src=dataURL; $('refPreview').style.display='block';
-    $('startBtn').style.display='block';
-    store.set({ref:dataURL});
-    buildRefMask();
+function loadRef(dataURL,fresh){
+  const raw=new Image();
+  raw.onload=()=>{
+    prog(40,'ย่อรูป...');
+    // downscale huge photos: segmentation + storage get 10x faster
+    const MAX=1280, sc=Math.min(1,MAX/Math.max(raw.naturalWidth,raw.naturalHeight));
+    const c=document.createElement('canvas');
+    c.width=Math.round(raw.naturalWidth*sc); c.height=Math.round(raw.naturalHeight*sc);
+    c.getContext('2d').drawImage(raw,0,0,c.width,c.height);
+    const small=c.toDataURL('image/jpeg',.85);
+    refImg=new Image();
+    refImg.onload=()=>{
+      $('refPreview').src=small; $('refPreview').style.display='block';
+      $('startBtn').style.display='block';
+      if(fresh) store.set({ref:small});
+      prog(60,'โหลดตัวตัดเงาคน...');
+      buildRefMask();
+    };
+    refImg.src=small;
   };
-  refImg.src=dataURL;
+  raw.src=dataURL;
 }
 if(store.k.ref) loadRef(store.k.ref);
 if(store.k.tol){ $('tol').value=store.k.tol; $('tolVal').textContent=store.k.tol+'°'; }
@@ -134,9 +160,11 @@ initSeg();
 
 let segTarget='ref';
 async function buildRefMask(){
-  if(!segOK||!refImg) return;
+  if(!segOK||!refImg){ prog(100,'พร้อมแล้ว'); return; }
   segTarget='ref';
-  try{ await seg.send({image:refImg}); }catch(e){ refMaskCanvas=null; }
+  prog(75,'กำลังตัดเงาคน...');
+  try{ await seg.send({image:refImg}); prog(100,'พร้อมแล้ว ✓'); }
+  catch(e){ refMaskCanvas=null; prog(100,'ใช้โหมดรูปเต็ม (ตัดเงาไม่ได้)'); }
 }
 
 function maskBBox(maskImg,w,h){
